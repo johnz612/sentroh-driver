@@ -1,4 +1,3 @@
-import * as Notifications from "expo-notifications";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
@@ -8,7 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Button, Loading, Notice, Screen, Title } from "@/components/ui";
 import { clearCache } from "@/lib/cache";
 import { useDriver } from "@/lib/driver";
-import { registerForPush } from "@/lib/push";
+import { listenForAlerts, registerForPush } from "@/lib/push";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/lib/supabase";
 import { C } from "@/lib/theme";
@@ -36,19 +35,15 @@ function usePush() {
     if (status === "ready") registerForPush();
   }, [status]);
 
-  useEffect(() => {
-    const received = Notifications.addNotificationReceivedListener((n) => {
-      const type = n?.request?.content?.data?.type;
-      if (type === "NEW_OFFER" || type === "OFFER_WITHDRAWN") useDriver.getState().refreshOffer().catch(() => {});
-    });
-    const open = (response) => {
-      const data = response?.notification?.request?.content?.data || {};
+  useEffect(() => listenForAlerts({
+    onReceive: (data) => {
+      if (data.type === "NEW_OFFER" || data.type === "OFFER_WITHDRAWN") useDriver.getState().refreshOffer().catch(() => {});
+    },
+    onOpen: (data) => {
       if (data.type === "NEW_OFFER") useDriver.getState().refreshOffer().catch(() => {});
       router.navigate("/");
-    };
-    const opened = Notifications.addNotificationResponseReceivedListener(open);
-    return () => { received.remove(); opened.remove(); };
-  }, [router]);
+    },
+  }), [router]);
 }
 
 function Root() {
