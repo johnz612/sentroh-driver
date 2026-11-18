@@ -25,19 +25,22 @@ function useSecondsLeft(iso) {
 function OfferCard({ offer, onAnswer, busy }) {
   const left = useSecondsLeft(offer.expiresAt);
   const standard = offer.kind === "STANDARD_RUN";
+  // Shared delivery: two neighbours' Express orders from one store, one trip, picked up now.
+  const shared = offer.kind === "SHARED_RUN";
   return (
     <Card tone="attention">
       <View style={[s.row, { justifyContent: "space-between" }]}>
-        <Pill text={standard ? `Standard run · ${offer.stops.length} stops` : "Express delivery"} tone="attention" />
+        <Pill text={standard ? `Standard run · ${offer.stops.length} stops` : shared ? `Shared trip · ${offer.stops.length} stops` : "Express delivery"} tone="attention" />
         <Text style={{ fontSize: 22, fontWeight: "800", color: left <= 10 ? C.red : C.ink }}>{left}s</Text>
       </View>
       <Text style={[s.title, { fontSize: 26, marginTop: 8 }]}>You earn {money(offer.driverPay)}</Text>
       <Body>Pick up at {offer.store.name || "the store"} · {km(offer.distanceToStoreKm)} away</Body>
       {standard && offer.departureAt ? <Body>Leaves at {clock(offer.departureAt)}</Body> : null}
+      {shared ? <Body>Two neighbours' orders from the same store. Pick up both, deliver one after the other.</Body> : null}
       {offer.stops.map((st) => (
         <Text key={st.orderNumber} style={s.sub}>Order #{st.orderNumber}: {st.barangay || "nearby"}{st.deliveryDistanceKm != null ? `, ${km(st.deliveryDistanceKm)} from the store` : ""}</Text>
       ))}
-      <Text style={[s.sub, { marginTop: 4 }]}>Collect {money(offer.amountToCollect)} from {standard ? "the customers" : "the customer"} (cash or GCash).</Text>
+      <Text style={[s.sub, { marginTop: 4 }]}>Collect {money(offer.amountToCollect)} from {standard || shared ? "each customer" : "the customer"} (cash or GCash).</Text>
       <View style={[s.row, { marginTop: 12 }]}>
         <Button title="Decline" kind="secondary" disabled={busy} onPress={() => onAnswer(false)} style={{ flex: 1, marginRight: 8 }} />
         <Button title="Accept" busy={busy} disabled={busy || left === 0} onPress={() => onAnswer(true)} style={{ flex: 2 }} />
