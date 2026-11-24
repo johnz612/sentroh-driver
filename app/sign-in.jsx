@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
+import { Text } from "@/components/AppText";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Button, Field, Notice, s } from "@/components/ui";
@@ -7,17 +8,41 @@ import { useSession } from "@/lib/session";
 import { normalizePhone, supabase } from "@/lib/supabase";
 import { C } from "@/lib/theme";
 
+/**
+ * Driver sign-in: mobile number + password (like the customer and store apps; same account).
+ * An SMS code only to create the account, or for a forgotten password (or an account
+ * without one): code, then a new password. New drivers then fill in the driver sign-up
+ * and an admin approves them. The app stays signed in after that.
+ */
 export default function SignIn() {
   const load = useSession((st) => st.load);
-  const [step, setStep] = useState("phone");
+  const [step, setStep] = useState("password"); // password | code | signup | signup-code
   const [phoneInput, setPhoneInput] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const phone = normalizePhone(phoneInput);
+  const phoneError = new Error("Enter your mobile number, like 0917 123 4567.");
+
+  async function signIn() {
+    if (!phone) return setError(phoneError);
+    if (!password) return setError(new Error("Enter your password."));
+    setBusy(true); setError(null);
+    const { error: err } = await supabase.auth.signInWithPassword({ phone, password });
+    if (err) {
+      setBusy(false);
+      return setError(new Error(/invalid login credentials/i.test(err.message || "")
+        ? "Wrong mobile number or password. First time here or forgot it? Use \"Sign in with an SMS code\" below."
+        : err.message || "Could not sign in. Try again."));
+    }
+    await load();
+    setBusy(false);
+  }
 
   async function sendCode() {
-    if (!phone) return setError(new Error("Enter your mobile number, like 0917 123 4567."));
+    if (!phone) return setError(phoneError);
     setBusy(true); setError(null);
     const { error: err } = await supabase.auth.signInWithOtp({ phone });
     setBusy(false);
@@ -27,29 +52,114 @@ export default function SignIn() {
 
   async function verify() {
     if (!/^\d{6}$/.test(code)) return setError(new Error("Enter the 6-digit code from the SMS."));
+    if (newPassword.length < 8) return setError(new Error("Choose a password with at least 8 characters."));
     setBusy(true); setError(null);
     const { error: err } = await supabase.auth.verifyOtp({ phone, token: code, type: "sms" });
     if (err) { setBusy(false); return setError(new Error("That code is wrong or expired. Check the SMS or send a new code.")); }
+    // Signed in now. If saving the password fails, the driver can still work; next time, use a code again.
+    await supabase.auth.updateUser({ password: newPassword });
     await load();
     setBusy(false);
+  }
+
+  async function createAccount() {
+    if (!phone) return setError(phoneError);
+    if (newPassword.length < 8) return setError(new Error("Choose a password with at least 8 characters."));
+    setBusy(true); setError(null);
+    const { data, error: err } = await supabase.auth.signUp({ phone, password: newPassword });
+    setBusy(false);
+    const taken = (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0)
+      || /already registered|already exists|user already/i.test(err?.message || "");
+    if (taken) return setError(new Error("This number already has a Sentroh account. Go back and sign in (or use an SMS code if you forgot the password)."));
+    if (err) return setError(new Error(err.message || "Could not create the account. Try again."));
+    if (data?.session) { await load(); return; }
+    setStep("signup-code");
+  }
+
+  async function verifySignUp() {
+    if (!/^\d{6}$/.test(code)) return setError(new Error("Enter the 6-digit code from the SMS."));
+    setBusy(true); setError(null);
+    const { error: err } = await supabase.auth.verifyOtp({ phone, token: code, type: "sms" });
+    if (err) { setBusy(false); return setError(new Error("That code is wrong or expired. Check the SMS or send a new code.")); }
+    await load(); // not a driver yet: the app opens the driver sign-up
+    setBusy(false);
+  }
+
+  async function resendSignUp() {
+    setBusy(true); setError(null);
+    const { error: err } = await supabase.auth.resend({ type: "sms", phone });
+    setBusy(false);
+    if (err) setError(new Error(err.message || "Could not send a new code. Try again."));
+  }
+
+  function back() {
+    setStep("password"); setCode(""); setNewPassword(""); setError(null);
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.ink }}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <View style={{ padding: 24, paddingTop: 48 }}>
-          <Text style={{ color: "#fff", fontSize: 40, fontWeight: "800", letterSpacing: -0.5 }}>Sentroh</Text>
-          <Text style={{ color: "#C3CEE2", fontSize: 17, marginTop: 4 }}>For drivers: deliver orders near you and earn per delivery.</Text>
+          <Text style={{ color: "#fff", fontSize: 40, fontWeight: "800", letterSpacing: -0.5 }}>Sentroh<Text style={{ color: C.mango }}>.</Text></Text>
+          <View style={{ alignSelf: "flex-start", backgroundColor: C.mango, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, marginTop: 6 }}>
+            <Text style={{ color: C.ink, fontSize: 13, fontWeight: "800" }}>DRIVER</Text>
+          </View>
+          <Text style={{ color: "#D6D6D2", fontSize: 17, marginTop: 8 }}>Deliver orders near you and earn per delivery.</Text>
         </View>
-        <View style={{ flex: 1, backgroundColor: C.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24 }}>
-          {step === "phone" ? (
+        <ScrollView style={{ flex: 1, backgroundColor: C.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}
+          contentContainerStyle={{ padding: 24 }} keyboardShouldPersistTaps="handled">
+          {step === "password" ? (
             <>
               <Text style={[s.title, { fontSize: 22, marginBottom: 12 }]}>Sign in</Text>
               <Field label="Mobile number" keyboardType="phone-pad" autoComplete="tel" placeholder="0917 123 4567"
-                value={phoneInput} onChangeText={setPhoneInput} autoFocus />
+                value={phoneInput} onChangeText={setPhoneInput} />
+              <Field label="Password" secureTextEntry autoComplete="current-password" autoCapitalize="none"
+                value={password} onChangeText={setPassword} onSubmitEditing={signIn} returnKeyType="go" />
               <Notice error={error} />
-              <Button title="Send code" onPress={sendCode} busy={busy} />
-              <Text style={[s.sub, { marginTop: 16 }]}>New to Sentroh? Sign in with your number, then sign up as a driver.</Text>
+              <Button title="Sign in" onPress={signIn} busy={busy} />
+              <Pressable onPress={sendCode} disabled={busy} style={{ marginTop: 20 }} accessibilityRole="button">
+                <Text style={[s.body, { color: C.ink, fontWeight: "700", textDecorationLine: "underline" }]}>Sign in with an SMS code</Text>
+              </Pressable>
+              <Text style={[s.sub, { marginTop: 4 }]}>
+                First time here, or forgot your password? Enter your number above and we'll text you a code; then you choose a password.
+              </Text>
+              <Text style={[s.sub, { marginTop: 16 }]}>Already use the Sentroh app? Your number and password work here too.</Text>
+              <View style={{ borderTopWidth: 1, borderColor: C.line, marginTop: 20, paddingTop: 20 }}>
+                <Text style={[s.label, { fontSize: 16 }]}>New to Sentroh?</Text>
+                <Text style={[s.sub, { marginBottom: 12 }]}>Create an account, then sign up as a driver. Sentroh checks every new driver before the first delivery.</Text>
+                <Button title="Create an account" kind="secondary" disabled={busy}
+                  onPress={() => { setStep("signup"); setError(null); setCode(""); setNewPassword(""); }} />
+              </View>
+            </>
+          ) : step === "signup" ? (
+            <>
+              <Text style={[s.title, { fontSize: 22 }]}>Create an account</Text>
+              <Text style={[s.sub, { marginBottom: 12 }]}>Step 1 of 2. Next you sign up as a driver.</Text>
+              <Field label="Mobile number" keyboardType="phone-pad" autoComplete="tel" placeholder="0917 123 4567"
+                value={phoneInput} onChangeText={setPhoneInput} />
+              <Field label="Password" hint="At least 8 characters. You sign in with your number and this password."
+                secureTextEntry autoComplete="new-password" autoCapitalize="none" value={newPassword} onChangeText={setNewPassword} />
+              <Notice error={error} />
+              <Button title="Send code" onPress={createAccount} busy={busy} />
+              <Text style={[s.sub, { marginTop: 8 }]}>We text a 6-digit code to check the number.</Text>
+              <Pressable onPress={back} style={{ marginTop: 16 }}>
+                <Text style={[s.body, { color: C.ink, fontWeight: "700", textDecorationLine: "underline" }]}>I already have an account</Text>
+              </Pressable>
+            </>
+          ) : step === "signup-code" ? (
+            <>
+              <Text style={[s.title, { fontSize: 22 }]}>Enter the code</Text>
+              <Text style={[s.sub, { marginBottom: 12 }]}>We sent a 6-digit code by SMS to {phone}.</Text>
+              <Field label="Code" keyboardType="number-pad" autoComplete="sms-otp" maxLength={6}
+                value={code} onChangeText={(v) => setCode(v.replace(/\D/g, ""))} autoFocus />
+              <Notice error={error} />
+              <Button title="Create account" onPress={verifySignUp} busy={busy} />
+              <Pressable onPress={resendSignUp} disabled={busy} style={{ marginTop: 16 }}>
+                <Text style={[s.body, { color: C.ink, fontWeight: "700", textDecorationLine: "underline" }]}>Send a new code</Text>
+              </Pressable>
+              <Pressable onPress={back} style={{ marginTop: 12 }}>
+                <Text style={[s.body, { color: C.ink, fontWeight: "700", textDecorationLine: "underline" }]}>Back to sign in</Text>
+              </Pressable>
             </>
           ) : (
             <>
@@ -57,14 +167,19 @@ export default function SignIn() {
               <Text style={[s.sub, { marginBottom: 12 }]}>We sent a 6-digit code by SMS to {phone}.</Text>
               <Field label="Code" keyboardType="number-pad" autoComplete="sms-otp" maxLength={6}
                 value={code} onChangeText={(v) => setCode(v.replace(/\D/g, ""))} autoFocus />
+              <Field label="New password" hint="At least 8 characters. Use it to sign in next time, no code needed."
+                secureTextEntry autoComplete="new-password" autoCapitalize="none" value={newPassword} onChangeText={setNewPassword} />
               <Notice error={error} />
               <Button title="Sign in" onPress={verify} busy={busy} />
-              <Pressable onPress={() => { setStep("phone"); setCode(""); setError(null); }} style={{ marginTop: 16 }}>
-                <Text style={[s.body, { color: C.teal, fontWeight: "600" }]}>Use a different number</Text>
+              <Pressable onPress={sendCode} disabled={busy} style={{ marginTop: 16 }}>
+                <Text style={[s.body, { color: C.ink, fontWeight: "700", textDecorationLine: "underline" }]}>Send a new code</Text>
+              </Pressable>
+              <Pressable onPress={back} style={{ marginTop: 12 }}>
+                <Text style={[s.body, { color: C.ink, fontWeight: "700", textDecorationLine: "underline" }]}>Back to sign in with password</Text>
               </Pressable>
             </>
           )}
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

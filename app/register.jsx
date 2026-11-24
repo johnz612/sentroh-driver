@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { Text } from "@/components/AppText";
 
 import { Body, Button, Chip, Field, Notice, Screen, s } from "@/components/ui";
 import { api } from "@/lib/api";

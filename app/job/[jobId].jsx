@@ -2,7 +2,8 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useLayoutEffect, useState } from "react";
-import { Alert, Text, TextInput, View } from "react-native";
+import { Alert, View } from "react-native";
+import { Text, TextInput } from "@/components/AppText";
 
 import { Body, Button, Card, Chip, Label, Notice, Pill, Screen, s } from "@/components/ui";
 import { driverApi } from "@/lib/api";
@@ -181,7 +182,7 @@ export default function JobScreen() {
             <Chip label="GCash" active={method === "GCASH"} onPress={() => setMethod("GCASH")} />
           </View>
           {method === "GCASH" ? (
-            <TextInput placeholder="GCash reference number" placeholderTextColor="#8A97A8" value={reference} onChangeText={setReference}
+            <TextInput placeholder="GCash reference number" placeholderTextColor={C.inkSoft} value={reference} onChangeText={setReference}
               style={[s.input, { marginTop: 8 }]} keyboardType="number-pad" maxLength={30} accessibilityLabel="GCash reference number" />
           ) : null}
 

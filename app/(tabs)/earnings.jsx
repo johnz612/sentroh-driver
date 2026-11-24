@@ -1,4 +1,5 @@
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { RefreshControl, ScrollView, View } from "react-native";
+import { Text } from "@/components/AppText";
 
 import { useLoader } from "@/components/hooks";
 import { Body, Card, Label, Notice, Skeleton, s } from "@/components/ui";

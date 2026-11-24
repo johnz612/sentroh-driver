@@ -1,9 +1,13 @@
+import {
+  Archivo_400Regular, Archivo_500Medium, Archivo_600SemiBold, Archivo_700Bold, Archivo_800ExtraBold, useFonts,
+} from "@expo-google-fonts/archivo";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { FONT } from "@/components/AppText";
 import { Button, Loading, Notice, Screen, Title } from "@/components/ui";
 import { clearCache } from "@/lib/cache";
 import { useDriver } from "@/lib/driver";
@@ -78,7 +82,7 @@ function Root() {
   }
 
   return (
-    <Stack screenOptions={{ headerTintColor: C.ink, headerStyle: { backgroundColor: C.surface }, contentStyle: { backgroundColor: C.paper } }}>
+    <Stack screenOptions={{ headerTintColor: C.ink, headerStyle: { backgroundColor: C.surface }, headerTitleStyle: { fontFamily: FONT[800], fontSize: 18 }, headerShadowVisible: false, contentStyle: { backgroundColor: C.paper } }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="sign-in" options={{ headerShown: false }} />
       <Stack.Screen name="register" options={{ title: "Become a Sentroh driver" }} />
@@ -88,6 +92,9 @@ function Root() {
 }
 
 export default function Layout() {
+  // Archivo ships inside the app; wait the moment it takes so no screen shows in the wrong font.
+  const [fontsReady] = useFonts({ Archivo_400Regular, Archivo_500Medium, Archivo_600SemiBold, Archivo_700Bold, Archivo_800ExtraBold });
+  if (!fontsReady) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

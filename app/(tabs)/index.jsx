@@ -1,6 +1,7 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, Switch, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Switch, View } from "react-native";
+import { Text } from "@/components/AppText";
 
 import { Body, Button, Card, Label, Notice, Pill, s } from "@/components/ui";
 import { driverApi } from "@/lib/api";
@@ -150,7 +151,7 @@ export default function Drive() {
               <Text style={s.sub}>{online ? (jobs.length ? "Finish your delivery to get the next offer." : "Waiting for offers near you…") : "Go online to receive delivery offers."}</Text>
             </View>
             <Switch value={online} onValueChange={toggle} disabled={busy === "online" || (online && jobs.length > 0)}
-              trackColor={{ true: C.teal }} accessibilityLabel="Online" />
+              trackColor={{ true: C.green, false: "#CFCFCA" }} thumbColor="#fff" accessibilityLabel="Online" />
           </View>
         </Card>
       )}

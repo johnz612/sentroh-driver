@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
 import { useState } from "react";
-import { ScrollView, Text } from "react-native";
+import { ScrollView } from "react-native";
+import { Text } from "@/components/AppText";
 
 import { Body, Button, Card, Label, Notice, Pill, s } from "@/components/ui";
 import { useDriver } from "@/lib/driver";
