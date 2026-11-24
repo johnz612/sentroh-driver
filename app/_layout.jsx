@@ -2,6 +2,7 @@ import {
   Archivo_400Regular, Archivo_500Medium, Archivo_600SemiBold, Archivo_700Bold, Archivo_800ExtraBold, useFonts,
 } from "@expo-google-fonts/archivo";
 import { Stack, useRouter, useSegments } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -15,6 +16,12 @@ import { listenForAlerts, registerForPush } from "@/lib/push";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/lib/supabase";
 import { C } from "@/lib/theme";
+
+// Keep the opening screen (logo) up until the driver account is loaded, so there is no blank page in between.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+try { SplashScreen.setOptions({ fade: true, duration: 250 }); } catch { /* older native build */ }
+const SPLASH_MAX_MS = 6000; // never keep the logo longer than this (e.g. no internet)
+const hideSplash = () => SplashScreen.hideAsync().catch(() => {});
 
 /** Sends people to sign-in, driver sign-up, or the tabs. */
 function useGate() {
@@ -70,6 +77,10 @@ function Root() {
   useGate();
   usePush();
 
+  useEffect(() => {
+    if (status !== "loading") hideSplash();
+  }, [status]);
+
   if (status === "loading") return <Screen><Loading what="Opening Sentroh Driver" /></Screen>;
   if (status === "error") {
     return (
@@ -94,6 +105,10 @@ function Root() {
 export default function Layout() {
   // Archivo ships inside the app; wait the moment it takes so no screen shows in the wrong font.
   const [fontsReady] = useFonts({ Archivo_400Regular, Archivo_500Medium, Archivo_600SemiBold, Archivo_700Bold, Archivo_800ExtraBold });
+  useEffect(() => {
+    const t = setTimeout(hideSplash, SPLASH_MAX_MS);
+    return () => clearTimeout(t);
+  }, []);
   if (!fontsReady) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
