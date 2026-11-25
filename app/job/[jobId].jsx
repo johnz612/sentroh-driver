@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 
+import { StepBar } from "@/components/DriverParts";
 import { Body, Button, Card, Chip, Label, Notice, Pill, Screen, s } from "@/components/ui";
 import { driverApi } from "@/lib/api";
 import { currentPosition, useDriver } from "@/lib/driver";
@@ -140,34 +141,40 @@ export default function JobScreen() {
   const failOpen = job.status === "ARRIVED" && job.failAllowedAt && now >= new Date(job.failAllowedAt).getTime()
     && (job.callsRequired == null || job.callAttempts >= job.callsRequired);
 
+  const stepNow = job.status === "ASSIGNED" ? 0 : job.status === "PICKED_UP" ? 1 : 2;
+
   return (
     <Screen>
+      <StepBar current={stepNow} />
       <Notice kind="ok">{done}</Notice>
       <Notice error={error} />
 
       <Card tone={job.status === "ASSIGNED" ? "attention" : undefined}>
-        <Label>1. Pick up at</Label>
-        <Text style={[s.body, { fontWeight: "800" }]}>{job.store.name}</Text>
+        <View style={[s.row, { justifyContent: "space-between" }]}>
+          <Label>1. Pick up at</Label>
+          {job.status !== "ASSIGNED" ? <Pill text="Picked up" tone="done" /> : null}
+        </View>
+        <Text style={[s.body, { fontWeight: "800", fontSize: 17 }]}>{job.store.name}</Text>
         {job.status === "ASSIGNED" ? (
           <>
             <Body>{ORDER_STATE[job.orderStatus] || ""}</Body>
             <NavButtons location={job.store.location} />
             <Button title="I'm at the store" kind="secondary" style={{ marginTop: 8 }} busy={busy === "ARRIVED_STORE"} disabled={!!busy} onPress={() => step("ARRIVED_STORE")} />
-            <Button title="Picked up the order" style={{ marginTop: 8 }} busy={busy === "PICKED_UP"} disabled={!!busy} onPress={() => step("PICKED_UP", {}, { message: "Picked up. Head to the customer." })} />
+            <Button title="I picked up the order" kind="attention" style={{ marginTop: 8, minHeight: 54 }} busy={busy === "PICKED_UP"} disabled={!!busy} onPress={() => step("PICKED_UP", {}, { message: "Picked up. Head to the customer." })} />
           </>
-        ) : <Pill text="Picked up" tone="done" />}
+        ) : null}
       </Card>
 
       <Card tone={job.status !== "ASSIGNED" ? "attention" : undefined}>
         <Label>2. Deliver to</Label>
-        <Text style={[s.body, { fontWeight: "800" }]}>{job.customer.name}</Text>
+        <Text style={[s.body, { fontWeight: "800", fontSize: 17 }]}>{job.customer.name}</Text>
         {job.customer.address ? <Body>{job.customer.address}</Body> : null}
         {job.customer.landmark ? <Text style={s.sub}>Landmark: {job.customer.landmark}</Text> : null}
         {job.notes ? <Text style={[s.sub, { marginTop: 4 }]}>Note: {job.notes}</Text> : null}
         {job.status !== "ASSIGNED" ? <NavButtons location={job.customer.location} /> : null}
         <Button title={`Call ${job.customer.phone || "customer"}`} kind="secondary" style={{ marginTop: 8 }} disabled={!job.customer.phone || !!busy} onPress={callCustomer} />
         {job.status === "PICKED_UP" ? (
-          <Button title="I'm at the customer" style={{ marginTop: 8 }} busy={busy === "ARRIVED_CUSTOMER"} disabled={!!busy}
+          <Button title="I'm at the customer" kind="attention" style={{ marginTop: 8, minHeight: 54 }} busy={busy === "ARRIVED_CUSTOMER"} disabled={!!busy}
             onPress={() => step("ARRIVED_CUSTOMER", {}, { needGps: true })} />
         ) : null}
       </Card>
@@ -175,8 +182,14 @@ export default function JobScreen() {
       {job.status === "PICKED_UP" || job.status === "ARRIVED" ? (
         <Card>
           <Label>3. Hand over and get paid</Label>
-          <Text style={[s.title, { fontSize: 24 }]}>Collect {money(job.payment.amountToCollect)}</Text>
-          <Text style={s.sub}>Customer chose {job.payment.method === "GCASH" ? "GCash" : "cash"}. You earn {money(job.driverPay)}.</Text>
+          <View style={{ backgroundColor: C.ink, borderRadius: 14, padding: 14 }}>
+            <Text style={{ color: "#BDBDB8", fontSize: 13, fontWeight: "600" }}>Collect from the customer</Text>
+            <Text style={{ color: "#fff", fontSize: 32, fontWeight: "800" }}>{money(job.payment.amountToCollect)}</Text>
+            <Text style={{ color: "#BDBDB8", fontSize: 13 }}>
+              They chose {job.payment.method === "GCASH" ? "GCash" : "cash"}. Your pay from this: <Text style={{ color: C.mango, fontWeight: "800" }}>{money(job.driverPay)}</Text>
+            </Text>
+          </View>
+          <Text style={[s.body, { fontWeight: "700", marginTop: 12 }]}>How did they pay?</Text>
           <View style={[s.row, { marginTop: 8 }]}>
             <Chip label="Cash" active={method === "CASH"} onPress={() => setMethod("CASH")} />
             <Chip label="GCash" active={method === "GCASH"} onPress={() => setMethod("GCASH")} />
@@ -196,7 +209,7 @@ export default function JobScreen() {
             <Button title="Gallery" kind="secondary" disabled={!!busy} onPress={() => takeProof(false)} style={{ flex: 1 }} />
           </View>
 
-          <Button title="Delivered" style={{ marginTop: 12 }} busy={busy === "DELIVERED"} disabled={!!busy} onPress={delivered} />
+          <Button title="Delivered" kind="attention" style={{ marginTop: 12, minHeight: 54 }} busy={busy === "DELIVERED"} disabled={!!busy} onPress={delivered} />
         </Card>
       ) : null}
 

@@ -1,26 +1,20 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { RefreshControl, ScrollView, View } from "react-native";
 import { Text } from "@/components/AppText";
 
 import { useLoader } from "@/components/hooks";
-import { Body, Card, Label, Notice, Skeleton, s } from "@/components/ui";
+import { MoneyLine } from "@/components/DriverParts";
+import { Body, Card, Label, Notice, Pill, Skeleton, s } from "@/components/ui";
 import { driverApi } from "@/lib/api";
 import { apiKey } from "@/lib/cache";
 import { clock, dayLabel, money } from "@/lib/format";
 import { C } from "@/lib/theme";
 
-function Big({ label, value, sub }) {
-  return (
-    <View style={{ flex: 1 }}>
-      <Text style={s.sub}>{label}</Text>
-      <Text style={{ fontSize: 24, fontWeight: "800", color: C.ink }}>{value}</Text>
-      {sub ? <Text style={s.sub}>{sub}</Text> : null}
-    </View>
-  );
-}
+const METHOD = { GCASH: "GCash", BANK: "Bank", CASH: "Cash" };
 
 /**
- * Earnings: what the driver made (their share of each delivery fee) and the
- * customers' money still to hand in to Sentroh.
+ * Earnings, in plain words: what the driver earned, and the customers' money they still
+ * have to hand in to Sentroh (cash collected minus their pay minus what they already handed in).
  */
 export default function Earnings() {
   const { data, error, refreshing, refresh } = useLoader(() => driverApi("/earnings"), [], { key: apiKey("/api/v1/driver/earnings"), refreshOnFocusMs: 5000 });
@@ -29,56 +23,86 @@ export default function Earnings() {
     return <ScrollView style={s.screen} contentContainerStyle={s.content}>{error ? <Notice error={error} /> : <Skeleton kind="cards" rows={3} pad={0} what="Loading earnings" />}</ScrollView>;
   }
   const e = data.earnings;
+  const cash = e.cash;
+  const owe = Number(cash.toRemit) > 0;
+
+  // Deliveries grouped by day, newest first.
+  const days = [];
+  for (const d of e.recentDeliveries) {
+    const key = dayLabel(new Date(d.deliveredAt).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }));
+    if (!days.length || days[days.length - 1].key !== key) days.push({ key, items: [] });
+    days[days.length - 1].items.push(d);
+  }
 
   return (
-    <ScrollView style={s.screen} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={C.teal} />}>
+    <ScrollView style={s.screen} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={C.ink} />}>
       <Notice error={error} />
-      <Card>
-        <View style={s.row}>
-          <Big label="Today" value={money(e.today.earned)} sub={`${e.today.deliveries} deliveries`} />
-          <Big label="Last 7 days" value={money(e.last7Days.earned)} sub={`${e.last7Days.deliveries} deliveries`} />
+
+      {/* 1. What you earned */}
+      <View style={{ backgroundColor: C.ink, borderRadius: 20, padding: 18, marginBottom: 12 }}>
+        <Text style={{ color: "#BDBDB8", fontSize: 14, fontWeight: "600" }}>You earned today</Text>
+        <Text style={{ color: "#fff", fontSize: 40, fontWeight: "800", lineHeight: 46 }}>{money(e.today.earned)}</Text>
+        <Text style={{ color: "#BDBDB8", fontSize: 13 }}>{e.today.deliveries} deliver{e.today.deliveries === 1 ? "y" : "ies"} today</Text>
+        <View style={{ height: 1, backgroundColor: "#3A3A38", marginVertical: 12 }} />
+        <View style={[s.row, { justifyContent: "space-between" }]}>
+          <Text style={{ color: "#BDBDB8", fontSize: 14 }}>Last 7 days</Text>
+          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "800" }}>{money(e.last7Days.earned)} · {e.last7Days.deliveries} deliver{e.last7Days.deliveries === 1 ? "y" : "ies"}</Text>
         </View>
+      </View>
+
+      {/* 2. Cash to hand in, as a simple sum */}
+      <Card tone={owe ? "attention" : undefined}>
+        <Label>{owe ? "Hand in to Sentroh" : "Cash with you"}</Label>
+        <Text style={{ fontSize: 32, fontWeight: "800", color: C.ink }}>{owe ? money(cash.toRemit) : "All handed in"}</Text>
+        <View style={{ marginTop: 10, paddingTop: 6, borderTopWidth: 1, borderTopColor: owe ? "#F3D36B" : C.line }}>
+          <MoneyLine label="Collected from customers" value={money(cash.collected)} />
+          <MoneyLine label="Your pay (you keep it)" value={money(cash.earned)} sign="−" />
+          {Number(cash.remitted) > 0 ? <MoneyLine label="Already handed in" value={money(cash.remitted)} sign="−" /> : null}
+          <View style={{ height: 1, backgroundColor: owe ? "#F3D36B" : C.line, marginVertical: 4 }} />
+          <MoneyLine label="Still to hand in" value={money(cash.toRemit)} sign="=" strong />
+        </View>
+        <Text style={[s.sub, { marginTop: 8 }]}>
+          {owe ? "Hand it in by cash or GCash. Sentroh records it and it shows below." : "Nothing to hand in right now."}
+          {cash.lastRemittedAt ? ` Last handover ${clock(cash.lastRemittedAt)}.` : ""}
+        </Text>
       </Card>
 
-      <Card tone={e.cash.toRemit > 0 ? "attention" : undefined}>
-        <Label>Cash to hand in to Sentroh</Label>
-        <Text style={{ fontSize: 28, fontWeight: "800", color: C.ink }}>{money(e.cash.toRemit)}</Text>
-        <Body muted>
-          You collected {money(e.cash.collected)} from customers and keep {money(e.cash.earned)} as your pay
-          {e.cash.remitted ? `; ${money(e.cash.remitted)} already handed in` : ""}. Hand in the rest by cash or GCash; Sentroh records it.
-        </Body>
-        {e.cash.lastRemittedAt ? <Text style={[s.sub, { marginTop: 4 }]}>Last handover {clock(e.cash.lastRemittedAt)}</Text> : null}
-      </Card>
-
-      {e.byDay.length ? (
-        <Card>
-          <Label>By day</Label>
-          {e.byDay.map((d) => (
-            <View key={d.day} style={[s.row, { justifyContent: "space-between", paddingVertical: 3 }]}>
-              <Text style={s.body}>{dayLabel(d.day)}</Text>
-              <Text style={s.body}>{d.deliveries} × · {money(d.earned)}</Text>
-            </View>
-          ))}
-        </Card>
-      ) : null}
-
+      {/* 3. Deliveries by day */}
       <Card>
-        <Label>Recent deliveries</Label>
-        {e.recentDeliveries.length === 0 ? <Body muted>No deliveries yet. Go online on the Drive tab.</Body> : e.recentDeliveries.map((d) => (
-          <View key={d.deliveryJobId} style={[s.row, { justifyContent: "space-between", paddingVertical: 3 }]}>
-            <Text style={[s.body, { flex: 1 }]}>#{d.orderNumber} · {clock(d.deliveredAt)}</Text>
-            <Text style={s.body}>+{money(d.earned)}</Text>
+        <Label>Deliveries</Label>
+        {days.length === 0 ? <Body muted>No deliveries yet. Go online on the Drive tab.</Body> : days.map((d) => (
+          <View key={d.key} style={{ marginTop: 6 }}>
+            <View style={[s.row, { justifyContent: "space-between" }]}>
+              <Text style={[s.sub, { fontWeight: "700" }]}>{d.key}</Text>
+              <Text style={[s.sub, { fontWeight: "700" }]}>{money(d.items.reduce((sum, x) => sum + Number(x.earned), 0))}</Text>
+            </View>
+            {d.items.map((x) => (
+              <View key={x.deliveryJobId} style={[s.row, { justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.line }]}>
+                <View style={[s.row, { flex: 1 }]}>
+                  <Ionicons name="checkmark-circle" size={18} color={C.green} style={{ marginRight: 8 }} />
+                  <View>
+                    <Text style={[s.body, { fontWeight: "700" }]}>Order #{x.orderNumber}</Text>
+                    <Text style={s.sub}>{new Date(x.deliveredAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}</Text>
+                  </View>
+                </View>
+                <Text style={[s.body, { fontWeight: "800" }]}>+{money(x.earned)}</Text>
+              </View>
+            ))}
           </View>
         ))}
       </Card>
 
+      {/* 4. Handovers Sentroh received */}
       {e.handovers.length ? (
         <Card>
-          <Label>Handovers</Label>
+          <Label>Handed in to Sentroh</Label>
           {e.handovers.map((h) => (
-            <View key={h.id} style={[s.row, { justifyContent: "space-between", paddingVertical: 3 }]}>
-              <Text style={[s.body, { flex: 1 }]}>{clock(h.at)} · {h.method === "GCASH" ? "GCash" : h.method === "BANK" ? "Bank" : "Cash"}</Text>
-              <Text style={s.body}>{money(h.amount)}</Text>
+            <View key={h.id} style={[s.row, { justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.line }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.body, { fontWeight: "700" }]}>{money(h.amount)}</Text>
+                <Text style={s.sub}>{clock(h.at)} · {METHOD[h.method] || "Cash"}</Text>
+              </View>
+              <Pill text="Received" tone="done" />
             </View>
           ))}
         </Card>

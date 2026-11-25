@@ -1,16 +1,21 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, Switch, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { Text } from "@/components/AppText";
 
-import { Body, Button, Card, Label, Notice, Pill, s } from "@/components/ui";
+import { Route, TimeBar } from "@/components/DriverParts";
+import { useLoader } from "@/components/hooks";
+import { Body, Button, Card, Label, Notice, s } from "@/components/ui";
 import { driverApi } from "@/lib/api";
+import { apiKey } from "@/lib/cache";
 import { useDriver } from "@/lib/driver";
 import { clock, km, money } from "@/lib/format";
 import { useSession } from "@/lib/session";
 import { C } from "@/lib/theme";
 
-const STEP = { ASSIGNED: "Go to the store", PICKED_UP: "On the way to the customer", ARRIVED: "At the customer" };
+const STEP = { ASSIGNED: "Go to the store", PICKED_UP: "Bring it to the customer", ARRIVED: "Hand it over and get paid" };
+const STEP_NO = { ASSIGNED: 1, PICKED_UP: 2, ARRIVED: 3 };
 
 /** Seconds left until `iso`, ticking every second. */
 function useSecondsLeft(iso) {
@@ -28,25 +33,73 @@ function OfferCard({ offer, onAnswer, busy }) {
   const standard = offer.kind === "STANDARD_RUN";
   // Shared delivery: two neighbours' Express orders from one store, one trip, picked up now.
   const shared = offer.kind === "SHARED_RUN";
+  const kind = standard ? `Standard run · ${offer.stops.length} stops` : shared ? `Shared trip · ${offer.stops.length} stops` : "Express delivery";
+  const stops = [
+    { kind: "PICKUP", title: offer.store.name || "The store", sub: `${km(offer.distanceToStoreKm)} from you${standard && offer.departureAt ? ` · leaves ${clock(offer.departureAt)}` : ""}` },
+    ...offer.stops.map((st) => ({
+      kind: "DROP", title: st.barangay || "Nearby",
+      sub: `Order #${st.orderNumber}${st.deliveryDistanceKm != null ? ` · ${km(st.deliveryDistanceKm)} from the store` : ""}`,
+    })),
+  ];
   return (
-    <Card tone="attention">
-      <View style={[s.row, { justifyContent: "space-between" }]}>
-        <Pill text={standard ? `Standard run · ${offer.stops.length} stops` : shared ? `Shared trip · ${offer.stops.length} stops` : "Express delivery"} tone="attention" />
-        <Text style={{ fontSize: 22, fontWeight: "800", color: left <= 10 ? C.red : C.ink }}>{left}s</Text>
+    <View style={{ backgroundColor: C.ink, borderRadius: 20, padding: 18, marginBottom: 12 }}>
+      <View style={[s.row, { justifyContent: "space-between", marginBottom: 10 }]}>
+        <Text style={{ color: C.mango, fontSize: 13, fontWeight: "800", letterSpacing: 0.5 }}>NEW OFFER · {kind.toUpperCase()}</Text>
+        <Text style={{ color: left <= 10 ? "#FF6B5B" : "#fff", fontSize: 18, fontWeight: "800" }}>{left}s</Text>
       </View>
-      <Text style={[s.title, { fontSize: 26, marginTop: 8 }]}>You earn {money(offer.driverPay)}</Text>
-      <Body>Pick up at {offer.store.name || "the store"} · {km(offer.distanceToStoreKm)} away</Body>
-      {standard && offer.departureAt ? <Body>Leaves at {clock(offer.departureAt)}</Body> : null}
-      {shared ? <Body>Two neighbours' orders from the same store. Pick up both, deliver one after the other.</Body> : null}
-      {offer.stops.map((st) => (
-        <Text key={st.orderNumber} style={s.sub}>Order #{st.orderNumber}: {st.barangay || "nearby"}{st.deliveryDistanceKm != null ? `, ${km(st.deliveryDistanceKm)} from the store` : ""}</Text>
-      ))}
-      <Text style={[s.sub, { marginTop: 4 }]}>Collect {money(offer.amountToCollect)} from {standard || shared ? "each customer" : "the customer"} (cash or GCash).</Text>
-      <View style={[s.row, { marginTop: 12 }]}>
-        <Button title="Decline" kind="secondary" disabled={busy} onPress={() => onAnswer(false)} style={{ flex: 1, marginRight: 8 }} />
-        <Button title="Accept" busy={busy} disabled={busy || left === 0} onPress={() => onAnswer(true)} style={{ flex: 2 }} />
+      <TimeBar left={left} />
+
+      <Text style={{ color: "#BDBDB8", fontSize: 14, fontWeight: "600", marginTop: 14 }}>You earn</Text>
+      <Text style={{ color: "#fff", fontSize: 40, fontWeight: "800", lineHeight: 46 }}>{money(offer.driverPay)}</Text>
+
+      <Route stops={stops} dark />
+      {shared ? <Text style={{ color: "#BDBDB8", fontSize: 13, marginTop: 10 }}>Two neighbours, one store. Pick up both orders, then deliver one after the other.</Text> : null}
+
+      <View style={{ backgroundColor: "#262624", borderRadius: 12, padding: 12, marginTop: 14, flexDirection: "row", alignItems: "center" }}>
+        <Ionicons name="cash-outline" size={20} color={C.mango} style={{ marginRight: 10 }} />
+        <Text style={{ color: "#fff", fontSize: 14, flex: 1 }}>
+          Collect <Text style={{ fontWeight: "800" }}>{money(offer.amountToCollect)}</Text> from {standard || shared ? "each customer" : "the customer"} (cash or GCash)
+        </Text>
       </View>
-    </Card>
+
+      <View style={[s.row, { marginTop: 14 }]}>
+        <Pressable onPress={() => onAnswer(false)} disabled={busy} accessibilityRole="button"
+          style={({ pressed }) => [{ flex: 1, minHeight: 52, borderRadius: 999, borderWidth: 1, borderColor: "#5A5A57", alignItems: "center", justifyContent: "center", marginRight: 10 }, pressed && { opacity: 0.7 }]}>
+          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Decline</Text>
+        </Pressable>
+        <Pressable onPress={() => onAnswer(true)} disabled={busy || left === 0} accessibilityRole="button"
+          style={({ pressed }) => [{ flex: 2, minHeight: 52, borderRadius: 999, backgroundColor: C.mango, alignItems: "center", justifyContent: "center" }, (busy || left === 0) && { opacity: 0.5 }, pressed && { opacity: 0.85 }]}>
+          {busy ? <ActivityIndicator color={C.ink} /> : <Text style={{ color: C.ink, fontSize: 17, fontWeight: "800" }}>Accept</Text>}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/** Online / offline: one big switch the driver can't miss. */
+function StatusCard({ online, hasJob, busy, onToggle }) {
+  return (
+    <View style={{ backgroundColor: online ? C.ink : C.surface, borderRadius: 20, padding: 18, marginBottom: 12, borderWidth: online ? 0 : 1, borderColor: C.line }}>
+      <View style={s.row}>
+        <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: online ? "#3DDC84" : "#BDBDB8", marginRight: 8 }} />
+        <Text style={{ fontSize: 20, fontWeight: "800", color: online ? "#fff" : C.ink }}>{online ? (hasJob ? "On a delivery" : "You're online") : "You're offline"}</Text>
+      </View>
+      <Text style={{ fontSize: 14, color: online ? "#BDBDB8" : C.inkSoft, marginTop: 4 }}>
+        {online
+          ? hasJob ? "Finish this delivery to get the next offer." : "Waiting for offers near you. Keep the app open."
+          : "Go online to get delivery offers near you."}
+      </Text>
+      {online ? (
+        !hasJob ? (
+          <Pressable onPress={() => onToggle(false)} disabled={busy} accessibilityRole="button"
+            style={({ pressed }) => [{ marginTop: 14, minHeight: 46, borderRadius: 999, borderWidth: 1, borderColor: "#5A5A57", alignItems: "center", justifyContent: "center" }, pressed && { opacity: 0.7 }]}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700" }}>Go offline</Text>}
+          </Pressable>
+        ) : null
+      ) : (
+        <Button title="Go online" kind="attention" busy={busy} onPress={() => onToggle(true)} style={{ marginTop: 14, minHeight: 54 }} />
+      )}
+    </View>
   );
 }
 
@@ -67,6 +120,9 @@ export default function Drive() {
   const [refreshing, setRefreshing] = useState(false);
 
   const approved = driver?.approvalStatus === "APPROVED";
+  const { data: pay } = useLoader(() => driverApi("/earnings"), [], { key: apiKey("/api/v1/driver/earnings"), refreshOnFocusMs: 15000 });
+  const today = pay?.earnings?.today;
+  const toHandIn = pay?.earnings?.cash?.toRemit ?? 0;
 
   const sync = useCallback(async () => {
     try {
@@ -132,7 +188,20 @@ export default function Drive() {
 
   return (
     <ScrollView style={s.screen} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} tintColor={C.teal} />}>
-      <Text style={s.title}>Hi, {driver?.fullName?.split(" ")[0] || "driver"}</Text>
+      <View style={[s.row, { justifyContent: "space-between", marginBottom: 12 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.sub}>Hi, {driver?.fullName?.split(" ")[0] || "driver"}</Text>
+          <Text style={[s.title, { fontSize: 22 }]}>{today ? `${money(today.earned)} today` : "Today"}</Text>
+          {today ? <Text style={s.sub}>{today.deliveries} deliver{today.deliveries === 1 ? "y" : "ies"}</Text> : null}
+        </View>
+        {toHandIn > 0 ? (
+          <Pressable onPress={() => router.navigate("/earnings")} accessibilityRole="button"
+            style={{ backgroundColor: C.mangoWash, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, alignItems: "flex-end" }}>
+            <Text style={{ fontSize: 12, fontWeight: "700", color: C.mangoInk }}>To hand in</Text>
+            <Text style={{ fontSize: 16, fontWeight: "800", color: C.ink }}>{money(toHandIn)}</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       {!approved ? (
         <Card tone="attention">
@@ -144,16 +213,7 @@ export default function Drive() {
           </Body>
         </Card>
       ) : (
-        <Card tone={online ? undefined : "attention"}>
-          <View style={[s.row, { justifyContent: "space-between" }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[s.body, { fontWeight: "800", fontSize: 18 }]}>{online ? "You're online" : "You're offline"}</Text>
-              <Text style={s.sub}>{online ? (jobs.length ? "Finish your delivery to get the next offer." : "Waiting for offers near you…") : "Go online to receive delivery offers."}</Text>
-            </View>
-            <Switch value={online} onValueChange={toggle} disabled={busy === "online" || (online && jobs.length > 0)}
-              trackColor={{ true: C.green, false: "#CFCFCA" }} thumbColor="#fff" accessibilityLabel="Online" />
-          </View>
-        </Card>
+        <StatusCard online={online} hasJob={jobs.length > 0} busy={busy === "online"} onToggle={toggle} />
       )}
 
       <Notice kind="ok">{info}</Notice>
@@ -161,19 +221,35 @@ export default function Drive() {
 
       {online && offer && jobs.length === 0 ? <OfferCard offer={offer} busy={busy === "offer"} onAnswer={answer} /> : null}
 
-      {jobs.length ? <Label>Your deliveries</Label> : null}
+      {jobs.length ? <Label>Your delivery</Label> : null}
       {jobs.map((j) => (
-        <Pressable key={j.deliveryJobId} onPress={() => router.push(`/job/${j.deliveryJobId}`)} accessibilityRole="button">
-          <Card>
-            <View style={[s.row, { justifyContent: "space-between" }]}>
-              <Text style={[s.body, { fontWeight: "800" }]}>Order #{j.orderNumber}</Text>
-              <Pill text={STEP[j.status] || j.status} tone="active" />
+        <Pressable key={j.deliveryJobId} onPress={() => router.push(`/job/${j.deliveryJobId}`)} accessibilityRole="button"
+          style={({ pressed }) => [s.card, { borderColor: C.ink, borderWidth: 2 }, pressed && { opacity: 0.8 }]}>
+          <View style={[s.row, { justifyContent: "space-between" }]}>
+            <Text style={[s.body, { fontWeight: "800", fontSize: 17 }]}>Order #{j.orderNumber}</Text>
+            <Text style={[s.sub, { fontWeight: "700" }]}>Step {STEP_NO[j.status] || 1} of 3</Text>
+          </View>
+          <View style={[s.row, { marginTop: 8 }]}>
+            <Ionicons name={j.status === "ASSIGNED" ? "storefront" : "home"} size={18} color={C.ink} style={{ marginRight: 8 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={[s.body, { fontWeight: "700" }]}>{STEP[j.status] || j.status}</Text>
+              <Text style={s.sub}>{j.status === "ASSIGNED" ? j.store.name : j.customer.address || j.customer.name}</Text>
             </View>
-            <Body>{j.status === "ASSIGNED" ? j.store.name : j.customer.address || j.customer.name}</Body>
-            <Text style={s.sub}>Collect {money(j.payment.amountToCollect)} ({j.payment.method === "GCASH" ? "GCash" : "cash"}) · you earn {money(j.driverPay)}</Text>
-          </Card>
+          </View>
+          <View style={[s.row, { justifyContent: "space-between", marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.line }]}>
+            <Text style={s.sub}>Collect <Text style={{ fontWeight: "800", color: C.ink }}>{money(j.payment.amountToCollect)}</Text> ({j.payment.method === "GCASH" ? "GCash" : "cash"})</Text>
+            <Text style={s.sub}>You earn <Text style={{ fontWeight: "800", color: C.ink }}>{money(j.driverPay)}</Text></Text>
+          </View>
+          <Text style={[s.body, { fontWeight: "800", marginTop: 10, textAlign: "center" }]}>Open delivery ›</Text>
         </Pressable>
       ))}
+
+      {approved && online && !offer && jobs.length === 0 ? (
+        <View style={{ alignItems: "center", paddingVertical: 24 }}>
+          <Ionicons name="radio-outline" size={36} color={C.inkSoft} />
+          <Text style={[s.sub, { marginTop: 6, textAlign: "center" }]}>Offers show here and ring your phone.{"\n"}You have 30 seconds to accept each one.</Text>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
