@@ -51,6 +51,7 @@ function OfferCard({ offer, onAnswer, busy }) {
 
       <Text style={{ color: "#BDBDB8", fontSize: 14, fontWeight: "600", marginTop: 14 }}>You earn</Text>
       <Text style={{ color: "#fff", fontSize: 40, fontWeight: "800", lineHeight: 46 }}>{money(offer.driverPay)}</Text>
+      {offer.deliveryFee ? <Text style={{ color: "#BDBDB8", fontSize: 13 }}>Your share of the {money(offer.deliveryFee)} delivery fee</Text> : null}
 
       <Route stops={stops} dark />
       {shared ? <Text style={{ color: "#BDBDB8", fontSize: 13, marginTop: 10 }}>Two neighbours, one store. Pick up both orders, then deliver one after the other.</Text> : null}
@@ -74,6 +75,26 @@ function OfferCard({ offer, onAnswer, busy }) {
       </View>
     </View>
   );
+}
+
+/**
+ * Cards for the Drive tab: a trip still at the store is one card (one pickup for all its
+ * orders); once picked up, one card per stop, nearest first (the API sends them in order).
+ */
+function tripCards(jobs) {
+  const cards = [];
+  const atStore = new Map();
+  for (const j of jobs) {
+    if (j.runId && j.status === "ASSIGNED") {
+      if (atStore.has(j.runId)) { atStore.get(j.runId).jobs.push(j); continue; }
+      const card = { key: `run-${j.runId}`, jobs: [j] };
+      atStore.set(j.runId, card);
+      cards.push(card);
+    } else {
+      cards.push({ key: j.deliveryJobId, jobs: [j] });
+    }
+  }
+  return cards;
 }
 
 /** Online / offline: one big switch the driver can't miss. */
@@ -222,27 +243,36 @@ export default function Drive() {
       {online && offer && jobs.length === 0 ? <OfferCard offer={offer} busy={busy === "offer"} onAnswer={answer} /> : null}
 
       {jobs.length ? <Label>Your delivery</Label> : null}
-      {jobs.map((j) => (
-        <Pressable key={j.deliveryJobId} onPress={() => router.push(`/job/${j.deliveryJobId}`)} accessibilityRole="button"
-          style={({ pressed }) => [s.card, { borderColor: C.ink, borderWidth: 2 }, pressed && { opacity: 0.8 }]}>
-          <View style={[s.row, { justifyContent: "space-between" }]}>
-            <Text style={[s.body, { fontWeight: "800", fontSize: 17 }]}>Order #{j.orderNumber}</Text>
-            <Text style={[s.sub, { fontWeight: "700" }]}>Step {STEP_NO[j.status] || 1} of 3</Text>
-          </View>
-          <View style={[s.row, { marginTop: 8 }]}>
-            <Ionicons name={j.status === "ASSIGNED" ? "storefront" : "home"} size={18} color={C.ink} style={{ marginRight: 8 }} />
-            <View style={{ flex: 1 }}>
-              <Text style={[s.body, { fontWeight: "700" }]}>{STEP[j.status] || j.status}</Text>
-              <Text style={s.sub}>{j.status === "ASSIGNED" ? j.store.name : j.customer.address || j.customer.name}</Text>
+      {tripCards(jobs).map((card) => {
+        const j = card.jobs[0];
+        const pickup = card.jobs.every((x) => x.status === "ASSIGNED");
+        const many = card.jobs.length > 1;
+        const collect = card.jobs.reduce((sum, x) => sum + Number(x.payment.amountToCollect || 0), 0);
+        const pay = card.jobs.reduce((sum, x) => sum + Number(x.driverPay || 0), 0);
+        const title = many && pickup ? `Pick up ${card.jobs.length} orders` : j.stopCount > 1 ? `Stop ${j.stopNumber} of ${j.stopCount} · #${j.orderNumber}` : `Order #${j.orderNumber}`;
+        return (
+          <Pressable key={card.key} onPress={() => router.push(`/job/${j.deliveryJobId}`)} accessibilityRole="button"
+            style={({ pressed }) => [s.card, { borderColor: C.ink, borderWidth: 2 }, pressed && { opacity: 0.8 }]}>
+            <View style={[s.row, { justifyContent: "space-between" }]}>
+              <Text style={[s.body, { fontWeight: "800", fontSize: 17 }]}>{title}</Text>
+              <Text style={[s.sub, { fontWeight: "700" }]}>Step {STEP_NO[j.status] || 1} of 3</Text>
             </View>
-          </View>
-          <View style={[s.row, { justifyContent: "space-between", marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.line }]}>
-            <Text style={s.sub}>Collect <Text style={{ fontWeight: "800", color: C.ink }}>{money(j.payment.amountToCollect)}</Text> ({j.payment.method === "GCASH" ? "GCash" : "cash"})</Text>
-            <Text style={s.sub}>You earn <Text style={{ fontWeight: "800", color: C.ink }}>{money(j.driverPay)}</Text></Text>
-          </View>
-          <Text style={[s.body, { fontWeight: "800", marginTop: 10, textAlign: "center" }]}>Open delivery ›</Text>
-        </Pressable>
-      ))}
+            {many && pickup ? <Text style={s.sub}>{card.jobs.map((x) => `#${x.orderNumber}`).join(" + ")} · one trip</Text> : null}
+            <View style={[s.row, { marginTop: 8 }]}>
+              <Ionicons name={pickup ? "storefront" : "home"} size={18} color={C.ink} style={{ marginRight: 8 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={[s.body, { fontWeight: "700" }]}>{STEP[j.status] || j.status}</Text>
+                <Text style={s.sub}>{pickup ? j.store.name : j.customer.address || j.customer.name}</Text>
+              </View>
+            </View>
+            <View style={[s.row, { justifyContent: "space-between", marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.line }]}>
+              <Text style={s.sub}>Collect <Text style={{ fontWeight: "800", color: C.ink }}>{money(collect)}</Text>{many && pickup ? " in all" : ` (${j.payment.method === "GCASH" ? "GCash" : "cash"})`}</Text>
+              <Text style={s.sub}>You earn <Text style={{ fontWeight: "800", color: C.ink }}>{money(pay)}</Text></Text>
+            </View>
+            <Text style={[s.body, { fontWeight: "800", marginTop: 10, textAlign: "center" }]}>Open delivery ›</Text>
+          </Pressable>
+        );
+      })}
 
       {approved && online && !offer && jobs.length === 0 ? (
         <View style={{ alignItems: "center", paddingVertical: 24 }}>

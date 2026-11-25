@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Alert, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 
@@ -43,6 +43,15 @@ export default function JobScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const job = useDriver((st) => st.jobs.find((j) => j.deliveryJobId === jobId));
+  const allJobs = useDriver((st) => st.jobs);
+  // Shared trip or Standard run: the other orders picked up with this one (nearest drop-off first).
+  // Remember the trip after this job is delivered (it then leaves the list) to offer the next stop.
+  const runRef = useRef(null);
+  if (job?.runId) runRef.current = job.runId;
+  const tripJobs = runRef.current ? allJobs.filter((j) => j.runId === runRef.current) : [];
+  const atStore = tripJobs.filter((j) => j.status === "ASSIGNED");
+  const together = job?.status === "ASSIGNED" && atStore.length > 1;
+  const nextStop = tripJobs.find((j) => j.deliveryJobId !== jobId && j.status !== "ASSIGNED");
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [done, setDone] = useState(null);
@@ -51,7 +60,11 @@ export default function JobScreen() {
   const [reference, setReference] = useState("");
   const [now, setNow] = useState(Date.now());
 
-  useLayoutEffect(() => { navigation.setOptions({ title: job ? `Order #${job.orderNumber}` : "Delivery" }); }, [navigation, job]);
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: !job ? "Delivery" : together ? `Pick up ${atStore.length} orders` : job.stopCount > 1 ? `Stop ${job.stopNumber} of ${job.stopCount} · #${job.orderNumber}` : `Order #${job.orderNumber}`,
+    });
+  }, [navigation, job, together, atStore.length]);
   useEffect(() => { useDriver.getState().refreshJobs().catch(setError); }, []);
   useEffect(() => { if (job && !method) setMethod(job.payment.method); }, [job, method]);
   useEffect(() => {
@@ -65,7 +78,11 @@ export default function JobScreen() {
       <Screen>
         {done ? <Card><Pill text="Done" tone="done" /><Body style={{ marginTop: 8 }}>{done}</Body></Card> : <Body muted>This delivery is no longer with you.</Body>}
         <Notice error={error} />
-        <Button title="Back to Drive" onPress={() => router.navigate("/")} />
+        {nextStop ? (
+          <Button title={`Next: stop ${nextStop.stopNumber} · ${nextStop.customer.name}`} kind="attention" style={{ minHeight: 54, marginBottom: 8 }}
+            onPress={() => router.replace(`/job/${nextStop.deliveryJobId}`)} />
+        ) : null}
+        <Button title="Back to Drive" kind={nextStop ? "secondary" : "primary"} onPress={() => router.navigate("/")} />
       </Screen>
     );
   }
@@ -82,6 +99,27 @@ export default function JobScreen() {
       if (json.result?.customerDeliveryBlocked) setDone("Marked as failed. Bring the order back to the store.");
     } catch (err) {
       setError(err.code === "INVALID_TRANSITION" && action === "PICKED_UP" ? new Error("The store has not marked the order ready yet. Ask them, then try again.") : err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** One step for every order of the trip at the store (at the store / picked up). */
+  async function tripStep(action) {
+    setBusy(action); setError(null);
+    try {
+      const pos = await currentPosition().catch(() => ({}));
+      const json = await driverApi(`/runs/${job.runId}/actions`, { method: "POST", body: { action, ...pos } });
+      useDriver.getState().setJobs(json.jobs);
+      if (action === "PICKED_UP") {
+        const first = (json.jobs || []).find((j) => j.runId === job.runId && j.status === "PICKED_UP");
+        if (first && first.deliveryJobId !== job.deliveryJobId) router.replace(`/job/${first.deliveryJobId}`);
+        else setDone(`Picked up all ${atStore.length} orders. Go to stop 1 first.`);
+      }
+    } catch (err) {
+      setError(err.code === "ORDERS_NOT_READY"
+        ? new Error(`The store has not marked order${err.details?.orderNumbers?.length === 1 ? "" : "s"} ${(err.details?.orderNumbers || []).map((n) => `#${n}`).join(" and ")} ready yet. Ask them, then try again.`)
+        : err);
     } finally {
       setBusy(null);
     }
@@ -120,7 +158,7 @@ export default function JobScreen() {
       {
         text: "Yes, delivered",
         onPress: () => step("DELIVERED", { paymentMethod: method, paymentReference: method === "GCASH" ? reference.trim() : undefined },
-          { message: `Delivered! You earned ${money(job.driverPay)}. Keep ${amount} to hand in later (minus your pay).` }),
+          { message: `Delivered! You earned ${money(job.driverPay)}. Keep ${amount} to hand in later (minus your pay).${tripJobs.some((j) => j.deliveryJobId !== job.deliveryJobId && ["PICKED_UP", "ARRIVED"].includes(j.status)) ? " Now go to the next stop." : ""}` }),
       },
     ]);
   }
@@ -155,7 +193,20 @@ export default function JobScreen() {
           {job.status !== "ASSIGNED" ? <Pill text="Picked up" tone="done" /> : null}
         </View>
         <Text style={[s.body, { fontWeight: "800", fontSize: 17 }]}>{job.store.name}</Text>
-        {job.status === "ASSIGNED" ? (
+        {together ? (
+          <>
+            <Body>Get all {atStore.length} orders of this trip:</Body>
+            {atStore.map((j) => (
+              <View key={j.deliveryJobId} style={[s.row, { justifyContent: "space-between", paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: "#F3D36B" }]}>
+                <Text style={[s.body, { fontWeight: "700" }]}>Order #{j.orderNumber}</Text>
+                <Pill text={j.orderStatus === "READY_FOR_PICKUP" ? "Ready" : "Being prepared"} tone={j.orderStatus === "READY_FOR_PICKUP" ? "done" : "attention"} />
+              </View>
+            ))}
+            <NavButtons location={job.store.location} />
+            <Button title="I'm at the store" kind="secondary" style={{ marginTop: 8 }} busy={busy === "ARRIVED_STORE"} disabled={!!busy} onPress={() => tripStep("ARRIVED_STORE")} />
+            <Button title={`I picked up all ${atStore.length} orders`} kind="attention" style={{ marginTop: 8, minHeight: 54 }} busy={busy === "PICKED_UP"} disabled={!!busy} onPress={() => tripStep("PICKED_UP")} />
+          </>
+        ) : job.status === "ASSIGNED" ? (
           <>
             <Body>{ORDER_STATE[job.orderStatus] || ""}</Body>
             <NavButtons location={job.store.location} />
@@ -166,7 +217,7 @@ export default function JobScreen() {
       </Card>
 
       <Card tone={job.status !== "ASSIGNED" ? "attention" : undefined}>
-        <Label>2. Deliver to</Label>
+        <Label>{job.stopCount > 1 ? `2. Stop ${job.stopNumber} of ${job.stopCount}: deliver to` : "2. Deliver to"}</Label>
         <Text style={[s.body, { fontWeight: "800", fontSize: 17 }]}>{job.customer.name}</Text>
         {job.customer.address ? <Body>{job.customer.address}</Body> : null}
         {job.customer.landmark ? <Text style={s.sub}>Landmark: {job.customer.landmark}</Text> : null}
@@ -186,8 +237,22 @@ export default function JobScreen() {
             <Text style={{ color: "#BDBDB8", fontSize: 13, fontWeight: "600" }}>Collect from the customer</Text>
             <Text style={{ color: "#fff", fontSize: 32, fontWeight: "800" }}>{money(job.payment.amountToCollect)}</Text>
             <Text style={{ color: "#BDBDB8", fontSize: 13 }}>
-              They chose {job.payment.method === "GCASH" ? "GCash" : "cash"}. Your pay from this: <Text style={{ color: C.mango, fontWeight: "800" }}>{money(job.driverPay)}</Text>
+              Items and fees for the order. They chose {job.payment.method === "GCASH" ? "GCash" : "cash"}.
             </Text>
+            <View style={{ height: 1, backgroundColor: "#3A3A38", marginVertical: 10 }} />
+            {job.deliveryFee != null ? (
+              <View style={[s.row, { justifyContent: "space-between" }]}>
+                <Text style={{ color: "#BDBDB8", fontSize: 14 }}>Delivery fee in it</Text>
+                <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>{money(job.deliveryFee)}</Text>
+              </View>
+            ) : null}
+            <View style={[s.row, { justifyContent: "space-between", marginTop: 4 }]}>
+              <Text style={{ color: "#BDBDB8", fontSize: 14 }}>
+                Your pay{job.deliveryFee ? ` (${Math.round((Number(job.driverPay) / Number(job.deliveryFee)) * 100)}% of the delivery fee)` : ""}
+              </Text>
+              <Text style={{ color: C.mango, fontSize: 16, fontWeight: "800" }}>{money(job.driverPay)}</Text>
+            </View>
+            <Text style={{ color: "#BDBDB8", fontSize: 12, marginTop: 6 }}>Keep your pay. The rest is the store's and Sentroh's: hand it in later.</Text>
           </View>
           <Text style={[s.body, { fontWeight: "700", marginTop: 12 }]}>How did they pay?</Text>
           <View style={[s.row, { marginTop: 8 }]}>
