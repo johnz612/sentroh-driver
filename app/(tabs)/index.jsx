@@ -144,6 +144,8 @@ export default function Drive() {
   const approved = driver?.approvalStatus === "APPROVED";
   const { data: pay } = useLoader(() => driverApi("/earnings"), [], { key: apiKey("/api/v1/driver/earnings"), refreshOnFocusMs: 15000 });
   const today = pay?.earnings?.today;
+  const { data: walletData } = useLoader(() => driverApi("/wallet"), [], { key: apiKey("/api/v1/driver/wallet"), refreshOnFocusMs: 15000 });
+  const wallet = walletData?.wallet;
   const toHandIn = pay?.earnings?.cash?.toRemit ?? 0;
 
   const sync = useCallback(async () => {
@@ -237,6 +239,22 @@ export default function Drive() {
       ) : (
         <StatusCard online={online} hasJob={jobs.length > 0} busy={busy === "online"} onToggle={toggle} />
       )}
+
+      {approved && wallet?.overdueSince ? (
+        <Pressable onPress={() => router.navigate("/earnings")} accessibilityRole="button">
+          <Card tone="danger">
+            <Label>Hand in your cash</Label>
+            <Body>Your cash is more than {wallet.remitByHours} hours old. You get no cash orders until you hand it in.</Body>
+          </Card>
+        </Pressable>
+      ) : approved && wallet && wallet.cashRoom < 300 ? (
+        <Pressable onPress={() => router.navigate("/earnings")} accessibilityRole="button">
+          <Card tone="attention">
+            <Label>Room for cash orders: {money(wallet.cashRoom)}</Label>
+            <Body>You only get orders the customer already paid, or small cash orders. Hand in cash or add to your deposit to get more.</Body>
+          </Card>
+        </Pressable>
+      ) : null}
 
       <Notice kind="ok">{info}</Notice>
       <Notice error={error} />

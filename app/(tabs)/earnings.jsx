@@ -5,6 +5,7 @@ import { Text } from "@/components/AppText";
 import { useLoader } from "@/components/hooks";
 import { MoneyLine } from "@/components/DriverParts";
 import { LevelCard } from "@/components/LevelCard";
+import { WalletCard } from "@/components/WalletCard";
 import { Body, Card, Label, Notice, Pill, Skeleton, s } from "@/components/ui";
 import { driverApi } from "@/lib/api";
 import { apiKey } from "@/lib/cache";
@@ -57,7 +58,8 @@ export default function Earnings() {
         <Text style={{ fontSize: 32, fontWeight: "800", color: C.ink }}>{owe ? money(cash.toRemit) : "All handed in"}</Text>
         <View style={{ marginTop: 10, paddingTop: 6, borderTopWidth: 1, borderTopColor: owe ? "#F3D36B" : C.line }}>
           <MoneyLine label="Collected from customers" value={money(cash.collected)} />
-          <MoneyLine label="Your pay (you keep it)" value={money(cash.earned)} sign="−" />
+          <MoneyLine label="Your pay" value={money(cash.earned)} sign="−" />
+          {Number(cash.saved) > 0 ? <MoneyLine label="Saved to your deposit (hand it in)" value={money(cash.saved)} sign="+" /> : null}
           {Number(cash.remitted) > 0 ? <MoneyLine label="Already handed in" value={money(cash.remitted)} sign="−" /> : null}
           <View style={{ height: 1, backgroundColor: owe ? "#F3D36B" : C.line, marginVertical: 4 }} />
           <MoneyLine label="Still to hand in" value={money(cash.toRemit)} sign="=" strong />
@@ -67,6 +69,9 @@ export default function Earnings() {
           {cash.lastRemittedAt ? ` Last handover ${clock(cash.lastRemittedAt)}.` : ""}
         </Text>
       </Card>
+
+      {/* Cash wallet: how much cash you can carry, deposit, auto-save */}
+      <WalletCard />
 
       {/* Your level: rating and offers accepted */}
       <LevelCard />
