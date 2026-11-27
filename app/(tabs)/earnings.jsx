@@ -4,6 +4,7 @@ import { Text } from "@/components/AppText";
 
 import { useLoader } from "@/components/hooks";
 import { MoneyLine } from "@/components/DriverParts";
+import { LevelCard } from "@/components/LevelCard";
 import { Body, Card, Label, Notice, Pill, Skeleton, s } from "@/components/ui";
 import { driverApi } from "@/lib/api";
 import { apiKey } from "@/lib/cache";
@@ -66,6 +67,9 @@ export default function Earnings() {
           {cash.lastRemittedAt ? ` Last handover ${clock(cash.lastRemittedAt)}.` : ""}
         </Text>
       </Card>
+
+      {/* Your level: rating and offers accepted */}
+      <LevelCard />
 
       {/* 3. Deliveries by day */}
       <Card>

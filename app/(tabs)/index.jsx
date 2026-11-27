@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { Text } from "@/components/AppText";
 
+import { BusyHours } from "@/components/BusyHours";
 import { Route, TimeBar } from "@/components/DriverParts";
 import { useLoader } from "@/components/hooks";
 import { Body, Button, Card, Label, Notice, s } from "@/components/ui";
@@ -273,6 +274,8 @@ export default function Drive() {
           </Pressable>
         );
       })}
+
+      {approved && !offer && jobs.length === 0 ? <BusyHours online={online} /> : null}
 
       {approved && online && !offer && jobs.length === 0 ? (
         <View style={{ alignItems: "center", paddingVertical: 24 }}>
